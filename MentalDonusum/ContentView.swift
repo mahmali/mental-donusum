@@ -5,9 +5,10 @@ import NaturalLanguage
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    @StateObject private var historyStore = HistoryStore()
     @State private var sourceText: String = ""
     @State private var translatedText: String = ""
-    @State private var sourceLanguageCode: String = ""        // "" = otomatik
+    @State private var sourceLanguageCode: String = ""
     @State private var targetLanguageCode: String = "tr"
     @State private var detectedSourceCode: String?
     @State private var resolvedSourceCode: String?
@@ -17,9 +18,20 @@ struct ContentView: View {
     @State private var debounceTask: Task<Void, Never>?
     @State private var openedFileName: String?
     @State private var showCopiedToast = false
+    @State private var showSettings = false
+    @State private var showHistory = false
 
     @AppStorage(AppTheme.storageKey) private var themeRaw: String = AppTheme.system.rawValue
+    @AppStorage(HotkeyManager.keyCodeKey) private var hotkeyKeyCode: Int = Int(HotkeyManager.defaultKeyCode)
+    @AppStorage(HotkeyManager.modifiersKey) private var hotkeyModifiers: Int = Int(HotkeyManager.defaultModifiers.rawValue)
+
     private var theme: AppTheme { AppTheme(rawValue: themeRaw) ?? .system }
+    private var currentShortcutString: String {
+        ShortcutFormatter.string(
+            keyCode: UInt16(hotkeyKeyCode),
+            modifiers: NSEvent.ModifierFlags(rawValue: UInt(hotkeyModifiers))
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,14 +48,10 @@ struct ContentView: View {
                     .padding(.vertical, 8)
             }
         }
-        .frame(minWidth: 660, minHeight: 380)
+        .frame(minWidth: 720, minHeight: 420)
         .preferredColorScheme(theme.colorScheme)
-        .onChange(of: themeRaw) { _, newValue in
-            AppTheme.apply(rawValue: newValue)
-        }
-        .onAppear {
-            AppTheme.apply(rawValue: themeRaw)
-        }
+        .onChange(of: themeRaw) { _, newValue in AppTheme.apply(rawValue: newValue) }
+        .onAppear { AppTheme.apply(rawValue: themeRaw) }
         .onChange(of: sourceText) { _, _ in scheduleTranslation() }
         .onChange(of: sourceLanguageCode) { _, _ in scheduleTranslation(immediate: true) }
         .onChange(of: targetLanguageCode) { _, _ in scheduleTranslation(immediate: true) }
@@ -52,6 +60,20 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .translateFromClipboard)) { _ in
             loadFromClipboard()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            showSettings = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openHistory)) { _ in
+            showHistory = true
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .sheet(isPresented: $showHistory) {
+            HistoryView(store: historyStore) { entry in
+                loadEntry(entry)
+            }
         }
         .overlay(alignment: .top) {
             if showCopiedToast {
@@ -70,11 +92,8 @@ struct ContentView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            LanguagePicker(
-                selection: $sourceLanguageCode,
-                includeAuto: true
-            )
-            .frame(maxWidth: 180)
+            LanguagePicker(selection: $sourceLanguageCode, includeAuto: true)
+                .frame(maxWidth: 180)
 
             Button {
                 swapLanguages()
@@ -85,11 +104,8 @@ struct ContentView: View {
             .help("Dilleri değiştir")
             .disabled(sourceLanguageCode.isEmpty && detectedSourceCode == nil)
 
-            LanguagePicker(
-                selection: $targetLanguageCode,
-                includeAuto: false
-            )
-            .frame(maxWidth: 180)
+            LanguagePicker(selection: $targetLanguageCode, includeAuto: false)
+                .frame(maxWidth: 180)
 
             Spacer()
 
@@ -99,11 +115,20 @@ struct ContentView: View {
             }
 
             Button {
+                showHistory = true
+            } label: {
+                Label("Geçmiş", systemImage: "clock.arrow.circlepath")
+            }
+            .keyboardShortcut("y", modifiers: .command)
+            .help("Çeviri geçmişi (⌘Y)")
+
+            Button {
                 openFile()
             } label: {
                 Label("Dosyadan Aç", systemImage: "folder")
             }
-            .help("Bir .txt / .md dosyasını aç ve çevir")
+            .keyboardShortcut("o", modifiers: .command)
+            .help("Bir .txt / .md dosyasını aç ve çevir (⌘O)")
 
             Button {
                 loadFromClipboard()
@@ -121,9 +146,9 @@ struct ContentView: View {
     private var editorPane: some View {
         HSplitView {
             sourcePane
-                .frame(minWidth: 260)
+                .frame(minWidth: 280)
             translationPane
-                .frame(minWidth: 260)
+                .frame(minWidth: 280)
         }
     }
 
@@ -162,21 +187,53 @@ struct ContentView: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
 
-            TextEditor(text: $sourceText)
-                .font(.system(size: 15))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+            MultilineTextView(text: $sourceText)
                 .overlay(alignment: .topLeading) {
                     if sourceText.isEmpty {
-                        Text("Çevrilecek metni buraya yazın veya yapıştırın…")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 15))
-                            .padding(.horizontal, 13)
-                            .padding(.top, 12)
+                        placeholderHints
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
                             .allowsHitTesting(false)
                     }
                 }
+        }
+    }
+
+    private var placeholderHints: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Çevrilecek metni yazın veya yapıştırın…")
+                .font(.system(size: 15))
+                .foregroundStyle(.tertiary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Kısayollar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                shortcutRow(currentShortcutString, "Panodaki metni çevir (her yerden)")
+                shortcutRow("⌘V", "Bu alana yapıştır")
+                shortcutRow("⌘O", "Dosyadan çeviri")
+                shortcutRow("⌘Y", "Geçmiş")
+                shortcutRow("⌘S", "Çeviriyi kaydet")
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func shortcutRow(_ shortcut: String, _ label: String) -> some View {
+        HStack(spacing: 10) {
+            Text(shortcut)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 44, alignment: .center)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(Color.secondary.opacity(0.30), lineWidth: 1)
+                )
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -194,7 +251,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(translatedText.isEmpty)
-                .help("Çeviriyi kopyala")
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .help("Çeviriyi kopyala (⌘⇧C)")
                 .foregroundStyle(translatedText.isEmpty ? Color.secondary : Color.accentColor)
 
                 Button {
@@ -204,7 +262,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(translatedText.isEmpty)
-                .help("Çeviriyi bir dosyaya kaydet")
+                .keyboardShortcut("s", modifiers: .command)
+                .help("Çeviriyi bir dosyaya kaydet (⌘S)")
                 .foregroundStyle(translatedText.isEmpty ? Color.secondary : Color.accentColor)
             }
             .padding(.horizontal, 12)
@@ -217,8 +276,8 @@ struct ContentView: View {
                     .foregroundStyle(translatedText.isEmpty ? .tertiary : .primary)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
             }
             .background(Color(NSColor.textBackgroundColor).opacity(0.4))
         }
@@ -272,6 +331,15 @@ struct ContentView: View {
         }
     }
 
+    private func loadEntry(_ entry: HistoryEntry) {
+        sourceLanguageCode = entry.sourceLang
+        targetLanguageCode = entry.targetLang
+        sourceText = entry.sourceText
+        translatedText = entry.translatedText
+        openedFileName = nil
+        errorMessage = nil
+    }
+
     // MARK: - File operations
 
     private func openFile() {
@@ -299,7 +367,6 @@ struct ContentView: View {
     }
 
     private func readTextFile(at url: URL) throws -> String {
-        // UTF-8 önce, sonra UTF-16, sonra Latin-1 dene; RTF'i NSAttributedString ile çöz.
         let data = try Data(contentsOf: url)
 
         if url.pathExtension.lowercased() == "rtf" {
@@ -411,6 +478,14 @@ struct ContentView: View {
             let response = try await session.translate(text)
             translatedText = response.targetText
             errorMessage = nil
+            if let src = resolvedSourceCode {
+                historyStore.add(HistoryEntry(
+                    sourceLang: src,
+                    targetLang: targetLanguageCode,
+                    sourceText: text,
+                    translatedText: response.targetText
+                ))
+            }
         } catch {
             errorMessage = "Çeviri yapılamadı: \(error.localizedDescription)"
         }
@@ -428,7 +503,58 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Custom multiline editor (cursor / placeholder hizalama düzeltmesi)
+
+struct MultilineTextView: NSViewRepresentable {
+    @Binding var text: String
+    var font: NSFont = .systemFont(ofSize: 15)
+    var inset: NSSize = NSSize(width: 16, height: 14)
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
+        textView.delegate = context.coordinator
+        textView.font = font
+        textView.isRichText = false
+        textView.usesFontPanel = false
+        textView.usesRuler = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.textContainerInset = inset
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.autoresizingMask = [.width]
+        textView.string = text
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            let cursor = textView.selectedRange()
+            textView.string = text
+            let newLen = (text as NSString).length
+            textView.setSelectedRange(NSRange(location: min(cursor.location, newLen), length: 0))
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: MultilineTextView
+        init(_ parent: MultilineTextView) { self.parent = parent }
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+    }
+}
+
 #Preview {
     ContentView()
-        .frame(width: 820, height: 500)
+        .frame(width: 820, height: 520)
 }

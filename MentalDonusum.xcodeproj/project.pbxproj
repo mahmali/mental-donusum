@@ -13,6 +13,8 @@
 		AA00000000000000000000A4 /* LanguagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000000A4 /* LanguagePicker.swift */; };
 		AA00000000000000000000A5 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000000A5 /* HotkeyManager.swift */; };
 		AA00000000000000000000A6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000000A6 /* Assets.xcassets */; };
+		AA00000000000000000000A8 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000000A8 /* Settings.swift */; };
+		AA00000000000000000000A9 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000000000000000000A9 /* History.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +25,8 @@
 		BB00000000000000000000A5 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		BB00000000000000000000A6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB00000000000000000000A7 /* MentalDonusum.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MentalDonusum.entitlements; sourceTree = "<group>"; };
+		BB00000000000000000000A8 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		BB00000000000000000000A9 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
 		BB00000000000000000000FF /* MentalDonusum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MentalDonusum.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -53,6 +57,8 @@
 				BB00000000000000000000A3 /* ContentView.swift */,
 				BB00000000000000000000A4 /* LanguagePicker.swift */,
 				BB00000000000000000000A5 /* HotkeyManager.swift */,
+				BB00000000000000000000A8 /* Settings.swift */,
+				BB00000000000000000000A9 /* History.swift */,
 				BB00000000000000000000A6 /* Assets.xcassets */,
 				BB00000000000000000000A7 /* MentalDonusum.entitlements */,
 			);
@@ -142,6 +148,8 @@
 				AA00000000000000000000A3 /* ContentView.swift in Sources */,
 				AA00000000000000000000A4 /* LanguagePicker.swift in Sources */,
 				AA00000000000000000000A5 /* HotkeyManager.swift in Sources */,
+				AA00000000000000000000A8 /* Settings.swift in Sources */,
+				AA00000000000000000000A9 /* History.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

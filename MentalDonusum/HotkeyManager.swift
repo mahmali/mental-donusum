@@ -4,24 +4,73 @@ import Carbon.HIToolbox
 final class HotkeyManager {
     static let shared = HotkeyManager()
 
+    static let keyCodeKey = "MentalDonusum.HotkeyKeyCode"
+    static let modifiersKey = "MentalDonusum.HotkeyModifiers"
+    static let defaultKeyCode: UInt16 = UInt16(kVK_ANSI_T)
+    static let defaultModifiers: NSEvent.ModifierFlags = [.command, .shift]
+
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var handler: (() -> Void)?
 
     private init() {}
 
-    /// ⌘+Shift+T global hotkey. Calls `handler` on the main queue when pressed.
-    func register(handler: @escaping () -> Void) {
-        unregister()
-        self.handler = handler
+    static var storedKeyCode: UInt16 {
+        if let v = UserDefaults.standard.object(forKey: keyCodeKey) as? Int {
+            return UInt16(v)
+        }
+        return defaultKeyCode
+    }
 
+    static var storedModifiers: NSEvent.ModifierFlags {
+        if let v = UserDefaults.standard.object(forKey: modifiersKey) as? Int {
+            return NSEvent.ModifierFlags(rawValue: UInt(v))
+        }
+        return defaultModifiers
+    }
+
+    static func save(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        UserDefaults.standard.set(Int(keyCode), forKey: keyCodeKey)
+        UserDefaults.standard.set(Int(modifiers.rawValue), forKey: modifiersKey)
+        NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+    }
+
+    /// Saved kısayolu uygular, dinleyici handler'ı tutar.
+    func register(handler: @escaping () -> Void) {
+        self.handler = handler
+        reapply()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(reapply),
+            name: .hotkeyChanged, object: nil
+        )
+    }
+
+    @objc func reapply() {
+        unregisterHotkey()
+        installHandlerIfNeeded()
+
+        let keyCode = HotkeyManager.storedKeyCode
+        let carbonMods = Self.carbonModifiers(from: HotkeyManager.storedModifiers)
+        let hotKeyID = EventHotKeyID(signature: HotkeyManager.signature, id: 1)
+
+        let regStatus = RegisterEventHotKey(
+            UInt32(keyCode), carbonMods, hotKeyID,
+            GetApplicationEventTarget(), 0, &hotKeyRef
+        )
+
+        if regStatus != noErr {
+            NSLog("HotkeyManager: RegisterEventHotKey failed: \(regStatus)")
+        }
+    }
+
+    private func installHandlerIfNeeded() {
+        guard eventHandlerRef == nil else { return }
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
-
         let userData = Unmanaged.passUnretained(self).toOpaque()
-        let installStatus = InstallEventHandler(
+        _ = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, eventRef, userData in
                 guard let userData, let eventRef else { return noErr }
@@ -40,49 +89,32 @@ final class HotkeyManager {
                 DispatchQueue.main.async { manager.handler?() }
                 return noErr
             },
-            1,
-            &eventType,
-            userData,
-            &eventHandlerRef
+            1, &eventType, userData, &eventHandlerRef
         )
-
-        guard installStatus == noErr else {
-            NSLog("HotkeyManager: InstallEventHandler failed with status \(installStatus)")
-            return
-        }
-
-        let hotKeyID = EventHotKeyID(signature: HotkeyManager.signature, id: 1)
-        let modifiers = UInt32(cmdKey | shiftKey)
-        let keyCode = UInt32(kVK_ANSI_T)
-
-        let regStatus = RegisterEventHotKey(
-            keyCode,
-            modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-
-        if regStatus != noErr {
-            NSLog("HotkeyManager: RegisterEventHotKey failed with status \(regStatus)")
-        }
     }
 
-    func unregister() {
+    private func unregisterHotkey() {
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
             hotKeyRef = nil
         }
-        if let handlerRef = eventHandlerRef {
-            RemoveEventHandler(handlerRef)
-            eventHandlerRef = nil
-        }
-        handler = nil
+    }
+
+    static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+        var result: UInt32 = 0
+        if flags.contains(.command) { result |= UInt32(cmdKey) }
+        if flags.contains(.shift)   { result |= UInt32(shiftKey) }
+        if flags.contains(.option)  { result |= UInt32(optionKey) }
+        if flags.contains(.control) { result |= UInt32(controlKey) }
+        return result
     }
 
     private static let signature: OSType = {
         let chars: [UInt8] = [0x4D, 0x44, 0x4E, 0x53] // 'MDNS'
         return chars.reduce(0) { ($0 << 8) | OSType($1) }
     }()
+}
+
+extension Notification.Name {
+    static let hotkeyChanged = Notification.Name("MentalDonusum.HotkeyChanged")
 }

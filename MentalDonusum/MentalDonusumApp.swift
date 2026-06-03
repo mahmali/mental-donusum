@@ -30,7 +30,17 @@ struct MenuBarContent: View {
             NotificationCenter.default.post(name: .translateFromClipboard, object: nil)
         }
 
+        Button("Geçmiş…") {
+            appDelegate.showMainWindow()
+            NotificationCenter.default.post(name: .openHistory, object: nil)
+        }
+
         Divider()
+
+        Button("Ayarlar…") {
+            appDelegate.showMainWindow()
+            NotificationCenter.default.post(name: .openSettings, object: nil)
+        }
 
         Menu("Tema") {
             Picker(selection: $themeRaw) {
