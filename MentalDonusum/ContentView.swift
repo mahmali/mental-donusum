@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var showCopiedToast = false
     @State private var showSettings = false
     @State private var showHistory = false
+    @State private var showAccessibilityNotice = false
 
     @AppStorage(AppTheme.storageKey) private var themeRaw: String = AppTheme.system.rawValue
     @AppStorage(HotkeyManager.keyCodeKey) private var hotkeyKeyCode: Int = Int(HotkeyManager.defaultKeyCode)
@@ -35,6 +36,10 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if showAccessibilityNotice {
+                accessibilityBanner
+                Divider()
+            }
             toolbar
             Divider()
             editorPane
@@ -61,6 +66,15 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .translateFromClipboard)) { _ in
             loadFromClipboard()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .translateText)) { notif in
+            if let text = notif.userInfo?["text"] as? String, !text.isEmpty {
+                openedFileName = nil
+                sourceText = text
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .accessibilityNeeded)) { _ in
+            showAccessibilityNotice = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
             showSettings = true
         }
@@ -86,6 +100,40 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+    }
+
+    // MARK: - Accessibility banner
+
+    private var accessibilityBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.title3)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Seçili metni otomatik çevirmek için Erişilebilirlik izni gerekli")
+                    .font(.callout.weight(.semibold))
+                Text("Sistem Ayarları → Gizlilik & Güvenlik → Erişilebilirlik altında Mental Dönüşüm'ü açın, sonra \(currentShortcutString) ile tekrar deneyin.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("Ayarları Aç") {
+                ClipboardHelper.openAccessibilitySettings()
+            }
+            .buttonStyle(.borderedProminent)
+            Button {
+                showAccessibilityNotice = false
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Kapat")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.14))
     }
 
     // MARK: - Toolbar

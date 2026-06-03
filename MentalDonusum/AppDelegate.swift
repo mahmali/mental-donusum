@@ -14,9 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         showMainWindow()
 
         HotkeyManager.shared.register { [weak self] in
-            guard let self else { return }
-            self.showMainWindow()
-            NotificationCenter.default.post(name: .translateFromClipboard, object: nil)
+            self?.handleGlobalHotkey()
         }
     }
 
@@ -34,6 +32,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard let window = mainWindow else { return }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Global hotkey'e basıldığında çalışır.
+    /// Sıralama önemli: önce ⌘C simülasyonu (ön plandaki uygulama hâlâ aktifken),
+    /// sonra pencereyi aç ve metni ContentView'e yolla.
+    private func handleGlobalHotkey() {
+        Task { @MainActor in
+            let result = await ClipboardHelper.grabSelectionAndReadClipboard()
+
+            // İzin yoksa kullanıcıya bir kez sistem diyaloğu çıkarsın
+            if !result.hasAccessibility {
+                _ = ClipboardHelper.isAccessibilityGranted(prompt: true)
+            }
+
+            showMainWindow()
+
+            if let text = result.text, !text.isEmpty {
+                NotificationCenter.default.post(
+                    name: .translateText,
+                    object: nil,
+                    userInfo: ["text": text]
+                )
+            }
+
+            if !result.hasAccessibility {
+                NotificationCenter.default.post(name: .accessibilityNeeded, object: nil)
+            }
+        }
     }
 
     private func buildMainWindow() {
