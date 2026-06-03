@@ -1,12 +1,15 @@
 import SwiftUI
 import Translation
 import AppKit
+import NaturalLanguage
 
 struct ContentView: View {
     @State private var sourceText: String = ""
     @State private var translatedText: String = ""
     @State private var sourceLanguageCode: String = ""        // "" = otomatik
     @State private var targetLanguageCode: String = "tr"
+    @State private var detectedSourceCode: String?
+    @State private var resolvedSourceCode: String?
     @State private var configuration: TranslationSession.Configuration?
     @State private var isTranslating = false
     @State private var errorMessage: String?
@@ -56,7 +59,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
             .help("Dilleri değiştir")
-            .disabled(sourceLanguageCode.isEmpty)
+            .disabled(sourceLanguageCode.isEmpty && detectedSourceCode == nil)
 
             LanguagePicker(
                 selection: $targetLanguageCode,
@@ -104,7 +107,7 @@ struct ContentView: View {
     private var sourcePane: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(LanguageCatalog.displayName(for: sourceLanguageCode, autoLabel: "Otomatik algıla"))
+                Text(sourceHeaderLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -171,9 +174,21 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    private var sourceHeaderLabel: String {
+        if !sourceLanguageCode.isEmpty {
+            return LanguageCatalog.displayName(for: sourceLanguageCode)
+        }
+        if let detected = detectedSourceCode {
+            return "Otomatik · \(LanguageCatalog.displayName(for: detected))"
+        }
+        return "Otomatik algıla"
+    }
+
     private func swapLanguages() {
-        guard !sourceLanguageCode.isEmpty else { return }
-        let oldSource = sourceLanguageCode
+        let oldSource = sourceLanguageCode.isEmpty
+            ? (detectedSourceCode ?? resolvedSourceCode)
+            : sourceLanguageCode
+        guard let oldSource else { return }
         sourceLanguageCode = targetLanguageCode
         targetLanguageCode = oldSource
         let oldText = sourceText
@@ -208,14 +223,37 @@ struct ContentView: View {
         guard !trimmed.isEmpty else {
             translatedText = ""
             errorMessage = nil
+            detectedSourceCode = nil
+            resolvedSourceCode = nil
             return
         }
         errorMessage = nil
-        let source: Locale.Language? = sourceLanguageCode.isEmpty
-            ? nil
-            : Locale.Language(identifier: sourceLanguageCode)
-        let target = Locale.Language(identifier: targetLanguageCode)
 
+        let effectiveSourceCode: String
+        if sourceLanguageCode.isEmpty {
+            if let detected = Self.detectLanguageCode(for: trimmed) {
+                detectedSourceCode = detected
+                effectiveSourceCode = detected
+            } else {
+                detectedSourceCode = nil
+                errorMessage = "Kaynak dil otomatik algılanamadı. Lütfen sol üstten kaynak dili seçin."
+                translatedText = ""
+                return
+            }
+        } else {
+            detectedSourceCode = nil
+            effectiveSourceCode = sourceLanguageCode
+        }
+
+        if effectiveSourceCode == targetLanguageCode {
+            translatedText = sourceText
+            resolvedSourceCode = effectiveSourceCode
+            return
+        }
+
+        resolvedSourceCode = effectiveSourceCode
+        let source = Locale.Language(identifier: effectiveSourceCode)
+        let target = Locale.Language(identifier: targetLanguageCode)
         let newConfig = TranslationSession.Configuration(source: source, target: target)
         if configuration == newConfig {
             configuration?.invalidate()
@@ -237,6 +275,19 @@ struct ContentView: View {
         } catch {
             errorMessage = "Çeviri yapılamadı: \(error.localizedDescription)"
         }
+    }
+
+    /// `NaturalLanguage` ile baskın dili algılar. Translation framework'ünün
+    /// otomatik algılayıcısından çok daha geniş bir aralıkta çalışır.
+    static func detectLanguageCode(for text: String) -> String? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let dominant = recognizer.dominantLanguage else { return nil }
+        // NLLanguage.rawValue genelde BCP-47 kodu döner ("en", "tr", "zh-Hans" vb.)
+        let code = dominant.rawValue
+        // Çince için sistem "zh" döner; Translation BCP-47 bekler — varsayılan basitleştirilmişe yönlendir.
+        if code == "zh" { return "zh-Hans" }
+        return code
     }
 }
 
