@@ -1,126 +1,123 @@
 #!/usr/bin/env swift
 // Mental Dönüşüm uygulama simgesini üretir.
-// Çalıştır: swift scripts/generate_icon.swift
+// Tasarım: koyu indigo squircle arka plan, tek beyaz konuşma balonu
+// silueti (sol-alt kuyrukla), içinde iki zıt yönlü ok = çift yönlü çeviri.
 //
-// NSBitmapImageRep'i doğrudan piksel olarak boyutlandırır — Retina backing scale
-// devreye girmez, üretilen PNG tam istenen boyutta olur.
+// Çalıştır: swift scripts/generate_icon.swift
 
 import AppKit
 
 let outputDir = "MentalDonusum/Assets.xcassets/AppIcon.appiconset"
 let pixelSizes: [Int] = [16, 32, 64, 128, 256, 512, 1024]
 
-func drawIcon(pixels: Int) -> NSBitmapImageRep {
-    let size = CGFloat(pixels)
-
-    let bitmap = NSBitmapImageRep(
+func makeBitmap(_ pixels: Int) -> NSBitmapImageRep {
+    let bmp = NSBitmapImageRep(
         bitmapDataPlanes: nil,
-        pixelsWide: pixels,
-        pixelsHigh: pixels,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
+        pixelsWide: pixels, pixelsHigh: pixels,
+        bitsPerSample: 8, samplesPerPixel: 4,
+        hasAlpha: true, isPlanar: false,
         colorSpaceName: .deviceRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
+        bytesPerRow: 0, bitsPerPixel: 0
     )!
-    bitmap.size = NSSize(width: size, height: size)
+    bmp.size = NSSize(width: pixels, height: pixels)
+    return bmp
+}
+
+func drawIcon(pixels: Int) -> NSBitmapImageRep {
+    let bmp = makeBitmap(pixels)
+    let s = CGFloat(pixels)
 
     NSGraphicsContext.saveGraphicsState()
-    let ctx = NSGraphicsContext(bitmapImageRep: bitmap)!
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    let ctx = NSGraphicsContext(bitmapImageRep: bmp)!
     ctx.shouldAntialias = true
     ctx.imageInterpolation = .high
     NSGraphicsContext.current = ctx
 
-    let rect = NSRect(x: 0, y: 0, width: size, height: size)
-    let corner = size * 0.2237
-    let bg = NSBezierPath(roundedRect: rect, xRadius: corner, yRadius: corner)
+    // ---- Arka plan: squircle, koyu indigo ----
+    let bg = NSColor(srgbRed: 0.16, green: 0.13, blue: 0.42, alpha: 1.0)
+    let bgRect = NSRect(x: 0, y: 0, width: s, height: s)
+    let radius = s * 0.2237
+    let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: radius, yRadius: radius)
+    bg.setFill()
+    bgPath.fill()
 
-    let top = NSColor(srgbRed: 0.43, green: 0.27, blue: 0.96, alpha: 1.0)
-    let mid = NSColor(srgbRed: 0.28, green: 0.30, blue: 0.95, alpha: 1.0)
-    let bot = NSColor(srgbRed: 0.13, green: 0.42, blue: 0.92, alpha: 1.0)
-    if let gradient = NSGradient(colors: [top, mid, bot]) {
-        gradient.draw(in: bg, angle: -75)
-    }
+    // ---- Konuşma balonu (beyaz) ----
+    // Daha küçük boyutlarda detayları korumak için biraz büyütüyoruz.
+    let scale: CGFloat = pixels <= 32 ? 0.72 : 0.62
+    let bw = s * scale
+    let bh = s * (scale * 0.81)
+    let bx = (s - bw) / 2
+    let by = (s - bh) / 2 + s * 0.04
+    let br = bh * 0.30
 
-    if pixels >= 64 {
-        let inset = size * 0.012
-        let highlightRect = rect.insetBy(dx: inset, dy: inset)
-        let highlightCorner = max(0, corner - inset)
-        let highlight = NSBezierPath(roundedRect: highlightRect, xRadius: highlightCorner, yRadius: highlightCorner)
-        highlight.lineWidth = max(1, size * 0.006)
-        NSColor.white.withAlphaComponent(0.18).setStroke()
-        highlight.stroke()
-    }
+    let bubble = NSBezierPath(roundedRect: NSRect(x: bx, y: by, width: bw, height: bh),
+                              xRadius: br, yRadius: br)
 
-    drawGlyph(size: size)
+    // Kuyruk: sol-alt köşede üçgen
+    let tail = NSBezierPath()
+    let tx = bx + bw * 0.22
+    tail.move(to: NSPoint(x: tx, y: by + 1))
+    tail.line(to: NSPoint(x: tx - bh * 0.18, y: by - bh * 0.24))
+    tail.line(to: NSPoint(x: tx + bh * 0.22, y: by + 1))
+    tail.close()
+    bubble.append(tail)
+    bubble.windingRule = .nonZero
 
-    NSGraphicsContext.restoreGraphicsState()
-    return bitmap
+    NSColor.white.setFill()
+    bubble.fill()
+
+    // ---- İçeriği çiz (16/32 boyutlarda detay kaybı için atla) ----
+    guard pixels >= 48 else { return bmp }
+
+    let lineW = max(1.5, s * 0.030)
+    let arrowLen = bw * 0.36
+    let cx = bx + bw / 2
+    let topY = by + bh * 0.62
+    let botY = by + bh * 0.34
+    let headSize = lineW * 1.6
+
+    bg.setStroke()
+
+    // Üst ok: → (sağa)
+    let p1 = NSBezierPath()
+    p1.lineWidth = lineW; p1.lineCapStyle = .round; p1.lineJoinStyle = .round
+    p1.move(to: NSPoint(x: cx - arrowLen / 2, y: topY))
+    p1.line(to: NSPoint(x: cx + arrowLen / 2, y: topY))
+    p1.move(to: NSPoint(x: cx + arrowLen / 2 - headSize, y: topY + headSize))
+    p1.line(to: NSPoint(x: cx + arrowLen / 2, y: topY))
+    p1.line(to: NSPoint(x: cx + arrowLen / 2 - headSize, y: topY - headSize))
+    p1.stroke()
+
+    // Alt ok: ← (sola)
+    let p2 = NSBezierPath()
+    p2.lineWidth = lineW; p2.lineCapStyle = .round; p2.lineJoinStyle = .round
+    p2.move(to: NSPoint(x: cx - arrowLen / 2, y: botY))
+    p2.line(to: NSPoint(x: cx + arrowLen / 2, y: botY))
+    p2.move(to: NSPoint(x: cx - arrowLen / 2 + headSize, y: botY + headSize))
+    p2.line(to: NSPoint(x: cx - arrowLen / 2, y: botY))
+    p2.line(to: NSPoint(x: cx - arrowLen / 2 + headSize, y: botY - headSize))
+    p2.stroke()
+
+    return bmp
 }
 
-func drawGlyph(size: CGFloat) {
-    let fontSize = size * 0.40
-    let leftAttrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
-        .foregroundColor: NSColor.white
-    ]
-    let rightAttrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.94)
-    ]
-
-    let left = NSAttributedString(string: "A", attributes: leftAttrs)
-    let right = NSAttributedString(string: "字", attributes: rightAttrs)
-
-    let leftSize = left.size()
-    let rightSize = right.size()
-
-    let arrowWidth = size * 0.18
-    let spacing = size * 0.045
-    let totalWidth = leftSize.width + spacing + arrowWidth + spacing + rightSize.width
-    let startX = (size - totalWidth) / 2
-    let baselineY = (size - leftSize.height) / 2 - size * 0.025
-
-    left.draw(at: NSPoint(x: startX, y: baselineY))
-
-    let arrowY = size / 2
-    let arrowStartX = startX + leftSize.width + spacing
-    let arrowEndX = arrowStartX + arrowWidth
-
-    let arrowPath = NSBezierPath()
-    arrowPath.lineWidth = max(2, size * 0.028)
-    arrowPath.lineCapStyle = .round
-    arrowPath.lineJoinStyle = .round
-    NSColor.white.setStroke()
-    arrowPath.move(to: NSPoint(x: arrowStartX, y: arrowY))
-    arrowPath.line(to: NSPoint(x: arrowEndX, y: arrowY))
-    let head = size * 0.055
-    arrowPath.move(to: NSPoint(x: arrowEndX - head, y: arrowY + head))
-    arrowPath.line(to: NSPoint(x: arrowEndX, y: arrowY))
-    arrowPath.line(to: NSPoint(x: arrowEndX - head, y: arrowY - head))
-    arrowPath.stroke()
-
-    right.draw(at: NSPoint(x: arrowEndX + spacing, y: baselineY))
-}
-
-func savePNG(_ bitmap: NSBitmapImageRep, to path: String) throws {
-    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+func savePNG(_ bmp: NSBitmapImageRep, to path: String) throws {
+    guard let data = bmp.representation(using: .png, properties: [:]) else {
         throw NSError(domain: "icon", code: 1)
     }
-    try png.write(to: URL(fileURLWithPath: path))
+    try data.write(to: URL(fileURLWithPath: path))
 }
 
 let fm = FileManager.default
 try? fm.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
 for pixels in pixelSizes {
-    let bitmap = drawIcon(pixels: pixels)
+    let bmp = drawIcon(pixels: pixels)
     let path = "\(outputDir)/icon_\(pixels).png"
     do {
-        try savePNG(bitmap, to: path)
-        print("✔ \(path) (\(pixels)×\(pixels), pixels=\(bitmap.pixelsWide)×\(bitmap.pixelsHigh))")
+        try savePNG(bmp, to: path)
+        print("✔ \(path)  (\(bmp.pixelsWide)×\(bmp.pixelsHigh))")
     } catch {
         print("✗ \(path): \(error.localizedDescription)")
     }
