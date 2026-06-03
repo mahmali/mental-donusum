@@ -1,3 +1,7 @@
+# Build artefaktları
+build/
+dist/
+
 # macOS
 .DS_Store
 .AppleDouble
