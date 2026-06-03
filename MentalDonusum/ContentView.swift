@@ -2,6 +2,7 @@ import SwiftUI
 import Translation
 import AppKit
 import NaturalLanguage
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var sourceText: String = ""
@@ -14,6 +15,11 @@ struct ContentView: View {
     @State private var isTranslating = false
     @State private var errorMessage: String?
     @State private var debounceTask: Task<Void, Never>?
+    @State private var openedFileName: String?
+    @State private var showCopiedToast = false
+
+    @AppStorage(AppTheme.storageKey) private var themeRaw: String = AppTheme.system.rawValue
+    private var theme: AppTheme { AppTheme(rawValue: themeRaw) ?? .system }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,7 +36,14 @@ struct ContentView: View {
                     .padding(.vertical, 8)
             }
         }
-        .frame(minWidth: 640, minHeight: 360)
+        .frame(minWidth: 660, minHeight: 380)
+        .preferredColorScheme(theme.colorScheme)
+        .onChange(of: themeRaw) { _, newValue in
+            AppTheme.apply(rawValue: newValue)
+        }
+        .onAppear {
+            AppTheme.apply(rawValue: themeRaw)
+        }
         .onChange(of: sourceText) { _, _ in scheduleTranslation() }
         .onChange(of: sourceLanguageCode) { _, _ in scheduleTranslation(immediate: true) }
         .onChange(of: targetLanguageCode) { _, _ in scheduleTranslation(immediate: true) }
@@ -39,6 +52,17 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .translateFromClipboard)) { _ in
             loadFromClipboard()
+        }
+        .overlay(alignment: .top) {
+            if showCopiedToast {
+                Text("Kopyalandı")
+                    .font(.callout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
 
@@ -75,19 +99,18 @@ struct ContentView: View {
             }
 
             Button {
-                loadFromClipboard()
+                openFile()
             } label: {
-                Label("Panodan yapıştır", systemImage: "doc.on.clipboard")
+                Label("Dosyadan Aç", systemImage: "folder")
             }
-            .help("Panodaki metni kaynak alana yapıştır")
+            .help("Bir .txt / .md dosyasını aç ve çevir")
 
             Button {
-                copyTranslationToClipboard()
+                loadFromClipboard()
             } label: {
-                Label("Kopyala", systemImage: "doc.on.doc")
+                Label("Yapıştır", systemImage: "doc.on.clipboard")
             }
-            .disabled(translatedText.isEmpty)
-            .help("Çeviri sonucunu panoya kopyala")
+            .help("Panodaki metni kaynak alana yapıştır")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -106,10 +129,17 @@ struct ContentView: View {
 
     private var sourcePane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(sourceHeaderLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let openedFileName {
+                    Text("· \(openedFileName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Spacer()
                 Text("\(sourceText.count) karakter")
                     .font(.caption)
@@ -118,6 +148,7 @@ struct ContentView: View {
                     Button {
                         sourceText = ""
                         translatedText = ""
+                        openedFileName = nil
                         errorMessage = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -129,6 +160,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
+            .padding(.bottom, 4)
 
             TextEditor(text: $sourceText)
                 .font(.system(size: 15))
@@ -150,14 +182,34 @@ struct ContentView: View {
 
     private var translationPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(LanguageCatalog.displayName(for: targetLanguageCode, autoLabel: "Hedef"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button {
+                    copyTranslationToClipboard()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(translatedText.isEmpty)
+                .help("Çeviriyi kopyala")
+                .foregroundStyle(translatedText.isEmpty ? Color.secondary : Color.accentColor)
+
+                Button {
+                    saveTranslationToFile()
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderless)
+                .disabled(translatedText.isEmpty)
+                .help("Çeviriyi bir dosyaya kaydet")
+                .foregroundStyle(translatedText.isEmpty ? Color.secondary : Color.accentColor)
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
+            .padding(.bottom, 4)
 
             ScrollView {
                 Text(translatedText.isEmpty ? "Çeviri burada görünecek…" : translatedText)
@@ -172,7 +224,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Header labels
 
     private var sourceHeaderLabel: String {
         if !sourceLanguageCode.isEmpty {
@@ -183,6 +235,8 @@ struct ContentView: View {
         }
         return "Otomatik algıla"
     }
+
+    // MARK: - Actions
 
     private func swapLanguages() {
         let oldSource = sourceLanguageCode.isEmpty
@@ -198,6 +252,7 @@ struct ContentView: View {
 
     private func loadFromClipboard() {
         if let text = NSPasteboard.general.string(forType: .string), !text.isEmpty {
+            openedFileName = nil
             sourceText = text
         }
     }
@@ -206,7 +261,91 @@ struct ContentView: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(translatedText, forType: .string)
+        flashCopiedToast()
     }
+
+    private func flashCopiedToast() {
+        withAnimation(.easeOut(duration: 0.15)) { showCopiedToast = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            withAnimation(.easeIn(duration: 0.25)) { showCopiedToast = false }
+        }
+    }
+
+    // MARK: - File operations
+
+    private func openFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Çevrilecek metin dosyası"
+        panel.message = "Çevrilecek bir metin dosyası seçin"
+        panel.prompt = "Aç"
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        if let plainText = UTType("public.plain-text") {
+            panel.allowedContentTypes = [plainText, .text, .utf8PlainText, .rtf, .html]
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let content = try readTextFile(at: url)
+                openedFileName = url.lastPathComponent
+                sourceText = content
+                errorMessage = nil
+            } catch {
+                errorMessage = "Dosya okunamadı: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func readTextFile(at url: URL) throws -> String {
+        // UTF-8 önce, sonra UTF-16, sonra Latin-1 dene; RTF'i NSAttributedString ile çöz.
+        let data = try Data(contentsOf: url)
+
+        if url.pathExtension.lowercased() == "rtf" {
+            if let attr = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            ) {
+                return attr.string
+            }
+        }
+
+        for encoding in [String.Encoding.utf8, .utf16, .isoLatin1, .windowsCP1254] {
+            if let s = String(data: data, encoding: encoding), !s.isEmpty {
+                return s
+            }
+        }
+        throw NSError(domain: "MentalDonusum", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Bilinmeyen metin kodlaması"
+        ])
+    }
+
+    private func saveTranslationToFile() {
+        guard !translatedText.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.title = "Çeviriyi Kaydet"
+        panel.message = "Çeviri sonucunu bir metin dosyasına kaydet"
+        panel.prompt = "Kaydet"
+        panel.canCreateDirectories = true
+        if let plainText = UTType("public.plain-text") {
+            panel.allowedContentTypes = [plainText]
+        }
+        let baseName = openedFileName.flatMap { $0.split(separator: ".").first.map(String.init) } ?? "ceviri"
+        panel.nameFieldStringValue = "\(baseName)-\(targetLanguageCode).txt"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try translatedText.write(to: url, atomically: true, encoding: .utf8)
+                errorMessage = nil
+            } catch {
+                errorMessage = "Kaydedilemedi: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Translation orchestration
 
     private func scheduleTranslation(immediate: Bool = false) {
         debounceTask?.cancel()
@@ -283,9 +422,7 @@ struct ContentView: View {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         guard let dominant = recognizer.dominantLanguage else { return nil }
-        // NLLanguage.rawValue genelde BCP-47 kodu döner ("en", "tr", "zh-Hans" vb.)
         let code = dominant.rawValue
-        // Çince için sistem "zh" döner; Translation BCP-47 bekler — varsayılan basitleştirilmişe yönlendir.
         if code == "zh" { return "zh-Hans" }
         return code
     }

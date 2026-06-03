@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+
+        let storedTheme = UserDefaults.standard.string(forKey: AppTheme.storageKey) ?? AppTheme.system.rawValue
+        AppTheme.apply(rawValue: storedTheme)
+
         buildMainWindow()
         showMainWindow()
 

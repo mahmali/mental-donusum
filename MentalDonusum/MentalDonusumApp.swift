@@ -10,7 +10,7 @@ struct MentalDonusumApp: App {
             MenuBarContent()
                 .environmentObject(appDelegate)
         } label: {
-            Image(systemName: "character.bubble.fill")
+            Image(systemName: "translate")
         }
         .menuBarExtraStyle(.menu)
     }
@@ -18,6 +18,7 @@ struct MentalDonusumApp: App {
 
 struct MenuBarContent: View {
     @EnvironmentObject private var appDelegate: AppDelegate
+    @AppStorage(AppTheme.storageKey) private var themeRaw: String = AppTheme.system.rawValue
 
     var body: some View {
         Button("Çevirmeni Aç  ⌘⇧T") {
@@ -27,6 +28,20 @@ struct MenuBarContent: View {
         Button("Panodaki Metni Çevir") {
             appDelegate.showMainWindow()
             NotificationCenter.default.post(name: .translateFromClipboard, object: nil)
+        }
+
+        Divider()
+
+        Menu("Tema") {
+            Picker(selection: $themeRaw) {
+                ForEach(AppTheme.allCases) { theme in
+                    Text(theme.label).tag(theme.rawValue)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
         }
 
         Divider()
@@ -42,6 +57,43 @@ struct MenuBarContent: View {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+}
+
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    static let storageKey = "MentalDonusum.AppTheme"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "Sistem"
+        case .light: return "Aydınlık"
+        case .dark: return "Karanlık"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    static func apply(rawValue: String) {
+        let theme = AppTheme(rawValue: rawValue) ?? .system
+        NSApp.appearance = theme.nsAppearance
     }
 }
 
